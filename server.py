@@ -60,12 +60,12 @@ if config.transport == "http" and config.azure_tenant_id and config.base_url:
         token_verifier=JWTVerifier(
             jwks_uri=f"https://login.microsoftonline.com/{tenant}/discovery/v2.0/keys",
             issuer=f"https://login.microsoftonline.com/{tenant}/v2.0",
-            audience=config.azure_client_id,
+            audience=f"api://{config.azure_client_id}",
         ),
         base_url=config.base_url,
         jwt_signing_key=config.jwt_signing_key or config.azure_client_secret,
         extra_authorize_params={
-            "scope": "openid profile",
+            "scope": f"openid profile api://{config.azure_client_id}/access_as_user",
         },
         require_authorization_consent=False,
     )
