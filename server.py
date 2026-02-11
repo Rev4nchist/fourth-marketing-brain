@@ -28,8 +28,27 @@ if config.transport == "http" and config.azure_tenant_id and config.base_url:
     from fastmcp.server.auth import OAuthProxy
     from fastmcp.server.auth.providers.jwt import JWTVerifier
 
+    class AzureADOAuthProxy(OAuthProxy):
+        """OAuthProxy subclass that strips the `resource` parameter.
+
+        Azure AD v2.0 doesn't support the `resource` query parameter
+        (it was removed in favor of scoped permissions). The MCP protocol
+        sends `resource=<server-url>` which OAuthProxy forwards by default,
+        causing Azure AD to reject with AADSTS9010010.
+        """
+
+        def _build_upstream_authorize_url(self, txn_id: str, transaction: dict) -> str:
+            url = super()._build_upstream_authorize_url(txn_id, transaction)
+            # Strip the resource parameter that Azure AD v2.0 doesn't support
+            from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
+            parsed = urlparse(url)
+            params = parse_qs(parsed.query, keep_blank_values=True)
+            params.pop("resource", None)
+            cleaned = urlunparse(parsed._replace(query=urlencode(params, doseq=True)))
+            return cleaned
+
     tenant = config.azure_tenant_id
-    auth = OAuthProxy(
+    auth = AzureADOAuthProxy(
         upstream_authorization_endpoint=(
             f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize"
         ),
@@ -46,7 +65,7 @@ if config.transport == "http" and config.azure_tenant_id and config.base_url:
         base_url=config.base_url,
         jwt_signing_key=config.jwt_signing_key or config.azure_client_secret,
         extra_authorize_params={
-            "scope": "openid profile Sites.Read.All Files.Read.All",
+            "scope": "openid profile",
         },
         require_authorization_consent=False,
     )
