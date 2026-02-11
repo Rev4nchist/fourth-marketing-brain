@@ -49,30 +49,7 @@ if config.transport == "http" and config.azure_tenant_id and config.base_url:
 
     tenant = config.azure_tenant_id
 
-    class DebugJWTVerifier(JWTVerifier):
-        """JWTVerifier wrapper that logs token claims for debugging."""
-
-        async def load_access_token(self, token: str):
-            import base64, json, sys
-            try:
-                parts = token.split(".")
-                if len(parts) >= 2:
-                    padded = parts[1] + "=" * (4 - len(parts[1]) % 4)
-                    claims = json.loads(base64.urlsafe_b64decode(padded))
-                    print(
-                        f"DEBUG TOKEN: iss={claims.get('iss')} aud={claims.get('aud')} "
-                        f"ver={claims.get('ver')} azp={claims.get('azp')}",
-                        flush=True,
-                    )
-                    print(
-                        f"DEBUG EXPECTED: iss={self.issuer} aud={self.audience}",
-                        flush=True,
-                    )
-            except Exception as e:
-                print(f"DEBUG decode error: {e}", flush=True)
-            return await super().load_access_token(token)
-
-    # Accept both v1.0 and v2.0 issuer formats (belt and suspenders)
+    # Accept both v1.0 and v2.0 Azure AD token formats
     v1_issuer = f"https://sts.windows.net/{tenant}/"
     v2_issuer = f"https://login.microsoftonline.com/{tenant}/v2.0"
 
@@ -85,7 +62,7 @@ if config.transport == "http" and config.azure_tenant_id and config.base_url:
         ),
         upstream_client_id=config.azure_client_id,
         upstream_client_secret=config.azure_client_secret,
-        token_verifier=DebugJWTVerifier(
+        token_verifier=JWTVerifier(
             jwks_uri=f"https://login.microsoftonline.com/{tenant}/discovery/v2.0/keys",
             issuer=[v1_issuer, v2_issuer],
             audience=[f"api://{config.azure_client_id}", config.azure_client_id],
