@@ -48,6 +48,27 @@ if config.transport == "http" and config.azure_tenant_id and config.base_url:
             return cleaned
 
     tenant = config.azure_tenant_id
+
+    class DebugJWTVerifier(JWTVerifier):
+        """JWTVerifier wrapper that logs token claims on failure for debugging."""
+
+        async def verify_token(self, token: str) -> dict:
+            import base64, json
+            try:
+                # Decode JWT payload (without verification) for logging
+                parts = token.split(".")
+                if len(parts) >= 2:
+                    padded = parts[1] + "=" * (4 - len(parts[1]) % 4)
+                    claims = json.loads(base64.urlsafe_b64decode(padded))
+                    logger.info(
+                        "Token claims: iss=%s aud=%s ver=%s exp=%s",
+                        claims.get("iss"), claims.get("aud"),
+                        claims.get("ver"), claims.get("exp"),
+                    )
+            except Exception as e:
+                logger.warning("Could not decode token for debug: %s", e)
+            return await super().verify_token(token)
+
     auth = AzureADOAuthProxy(
         upstream_authorization_endpoint=(
             f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize"
@@ -57,7 +78,7 @@ if config.transport == "http" and config.azure_tenant_id and config.base_url:
         ),
         upstream_client_id=config.azure_client_id,
         upstream_client_secret=config.azure_client_secret,
-        token_verifier=JWTVerifier(
+        token_verifier=DebugJWTVerifier(
             jwks_uri=f"https://login.microsoftonline.com/{tenant}/discovery/v2.0/keys",
             issuer=f"https://login.microsoftonline.com/{tenant}/v2.0",
             audience=f"api://{config.azure_client_id}",
