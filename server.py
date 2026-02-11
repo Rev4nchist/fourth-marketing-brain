@@ -53,24 +53,28 @@ if config.transport == "http" and config.azure_tenant_id and config.base_url:
         """JWTVerifier wrapper that logs token claims for debugging."""
 
         async def load_access_token(self, token: str):
-            import base64, json
+            import base64, json, sys
             try:
                 parts = token.split(".")
                 if len(parts) >= 2:
                     padded = parts[1] + "=" * (4 - len(parts[1]) % 4)
                     claims = json.loads(base64.urlsafe_b64decode(padded))
-                    logger.warning(
-                        "DEBUG TOKEN: iss=%s aud=%s ver=%s appid=%s",
-                        claims.get("iss"), claims.get("aud"),
-                        claims.get("ver"), claims.get("appid", claims.get("azp")),
+                    print(
+                        f"DEBUG TOKEN: iss={claims.get('iss')} aud={claims.get('aud')} "
+                        f"ver={claims.get('ver')} azp={claims.get('azp')}",
+                        flush=True,
                     )
-                    logger.warning(
-                        "DEBUG EXPECTED: iss=%s aud=%s",
-                        self.issuer, self.audience,
+                    print(
+                        f"DEBUG EXPECTED: iss={self.issuer} aud={self.audience}",
+                        flush=True,
                     )
             except Exception as e:
-                logger.warning("Could not decode token for debug: %s", e)
+                print(f"DEBUG decode error: {e}", flush=True)
             return await super().load_access_token(token)
+
+    # Accept both v1.0 and v2.0 issuer formats (belt and suspenders)
+    v1_issuer = f"https://sts.windows.net/{tenant}/"
+    v2_issuer = f"https://login.microsoftonline.com/{tenant}/v2.0"
 
     auth = AzureADOAuthProxy(
         upstream_authorization_endpoint=(
@@ -83,8 +87,8 @@ if config.transport == "http" and config.azure_tenant_id and config.base_url:
         upstream_client_secret=config.azure_client_secret,
         token_verifier=DebugJWTVerifier(
             jwks_uri=f"https://login.microsoftonline.com/{tenant}/discovery/v2.0/keys",
-            issuer=f"https://login.microsoftonline.com/{tenant}/v2.0",
-            audience=f"api://{config.azure_client_id}",
+            issuer=[v1_issuer, v2_issuer],
+            audience=[f"api://{config.azure_client_id}", config.azure_client_id],
         ),
         base_url=config.base_url,
         jwt_signing_key=config.jwt_signing_key or config.azure_client_secret,
