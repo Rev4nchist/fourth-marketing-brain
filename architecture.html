@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Fourth Marketing Brain - Architecture</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<style>
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 40px; background: #fafafa; }
+h1 { color: #333; border-bottom: 2px solid #f57c00; padding-bottom: 10px; }
+.mermaid { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+</style>
+</head>
+<body>
+<h1>Fourth Marketing Brain - Architecture</h1>
+
+<div class="mermaid">
+graph TB
+    subgraph Clients["AI Clients"]
+        CC["Claude Code\n(stdio)"]
+        GPT["ChatGPT\n(HTTP)"]
+        COP["Copilot\n(HTTP)"]
+    end
+
+    subgraph Server["FastMCP Server: fourth-marketing-brain"]
+        direction TB
+        subgraph Tools["5 Tools"]
+            T1["search_knowledge"]
+            T2["browse_library"]
+            T3["get_document"]
+            T4["ask_question\n(RAG + confidence)"]
+            T5["list_content_areas"]
+        end
+        subgraph Prompts["3 Prompts"]
+            P1["product_qa"]
+            P2["rfp_draft"]
+            P3["meeting_prep"]
+        end
+        PARSER["Document Parser\n.md .docx .pdf .pptx"]
+    end
+
+    subgraph Backend["Swappable Backend (env: BACKEND)"]
+        MOCK["MockBackend\nLocal Files"]
+        SP["SharePointBackend\nGraph API"]
+    end
+
+    subgraph Azure["Azure AD"]
+        AUTH["MSAL Auth\nClient Credentials"]
+    end
+
+    subgraph Sources["Knowledge Sources"]
+        LOCAL["sample_content/\n8 marketing docs"]
+        SPSITE["SharePoint Site\nMarketing Knowledge Base"]
+    end
+
+    CC -->|"stdio transport"| Server
+    GPT -->|"streamable-http"| Server
+    COP -->|"streamable-http"| Server
+    Tools --> PARSER
+    PARSER --> Backend
+    MOCK --> LOCAL
+    SP --> AUTH
+    AUTH -->|"Graph API\nSites.Read.All\nFiles.Read.All"| SPSITE
+
+    style Clients fill:#e1f5fe,stroke:#0288d1,stroke-width:2px
+    style Server fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    style Tools fill:#fff8e1,stroke:#ffa000
+    style Prompts fill:#fff8e1,stroke:#ffa000
+    style Backend fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    style Azure fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
+    style Sources fill:#fce4ec,stroke:#c62828,stroke-width:2px
+</div>
+
+<script>mermaid.initialize({startOnLoad: true, theme: 'default'});</script>
+</body>
+</html>
