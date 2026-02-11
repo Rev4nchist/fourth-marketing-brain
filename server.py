@@ -50,24 +50,27 @@ if config.transport == "http" and config.azure_tenant_id and config.base_url:
     tenant = config.azure_tenant_id
 
     class DebugJWTVerifier(JWTVerifier):
-        """JWTVerifier wrapper that logs token claims on failure for debugging."""
+        """JWTVerifier wrapper that logs token claims for debugging."""
 
-        async def verify_token(self, token: str) -> dict:
+        async def load_access_token(self, token: str):
             import base64, json
             try:
-                # Decode JWT payload (without verification) for logging
                 parts = token.split(".")
                 if len(parts) >= 2:
                     padded = parts[1] + "=" * (4 - len(parts[1]) % 4)
                     claims = json.loads(base64.urlsafe_b64decode(padded))
-                    logger.info(
-                        "Token claims: iss=%s aud=%s ver=%s exp=%s",
+                    logger.warning(
+                        "DEBUG TOKEN: iss=%s aud=%s ver=%s appid=%s",
                         claims.get("iss"), claims.get("aud"),
-                        claims.get("ver"), claims.get("exp"),
+                        claims.get("ver"), claims.get("appid", claims.get("azp")),
+                    )
+                    logger.warning(
+                        "DEBUG EXPECTED: iss=%s aud=%s",
+                        self.issuer, self.audience,
                     )
             except Exception as e:
                 logger.warning("Could not decode token for debug: %s", e)
-            return await super().verify_token(token)
+            return await super().load_access_token(token)
 
     auth = AzureADOAuthProxy(
         upstream_authorization_endpoint=(
