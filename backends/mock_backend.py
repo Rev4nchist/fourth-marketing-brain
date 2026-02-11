@@ -180,10 +180,12 @@ def _extract_summary(text: str, terms: list[str], max_len: int = 200) -> str:
 
 def _area_description(folder_name: str) -> str:
     descriptions = {
-        "competitive": "Competitive positioning and market analysis",
+        "competitive": "Competitive positioning, battle cards, and objection handling",
         "rfp-responses": "Approved RFP response templates and examples",
-        "platform": "Platform architecture, modules, and capabilities",
-        "solutions": "Solution briefs by vertical and use case",
-        "messaging": "Value propositions and talking points by persona",
+        "platform": "Product details: HotSchedules, Fourth iQ, MacromatiX, Fuego, Payroll, and more",
+        "solutions": "Solution briefs by vertical: QSR, casual dining, hotels, multi-location",
+        "messaging": "Value propositions, proof points, elevator pitches, and playbooks",
+        "integrations": "POS, payroll, HR, and API integration guides",
+        "compliance": "Security certifications, labor law, and tip management compliance",
     }
     return descriptions.get(folder_name, f"Content in {folder_name}")
