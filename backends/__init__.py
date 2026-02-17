@@ -11,3 +11,5 @@ __all__ = [
     "ContentArea",
     "MockBackend",
 ]
+
+# CosmosBackend imported lazily in server.py to avoid requiring Azure SDK when using mock backend

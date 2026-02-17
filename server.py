@@ -24,7 +24,8 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 auth = None
-if config.transport == "http" and config.azure_tenant_id and config.base_url:
+if config.auth_mode == "proxy" and config.transport == "http" and config.azure_tenant_id and config.base_url:
+    # OAuthProxy: handles OAuth flow in-process (Railway / standalone deployment)
     from fastmcp.server.auth import OAuthProxy
     from fastmcp.server.auth.providers.jwt import JWTVerifier
 
@@ -75,6 +76,7 @@ if config.transport == "http" and config.azure_tenant_id and config.base_url:
         require_authorization_consent=False,
     )
     logger.info("OAuthProxy configured for Azure AD tenant %s", tenant)
+# auth_mode == "easyauth": auth stays None — Azure Container Apps Easy Auth validates at platform level
 
 
 # ---------------------------------------------------------------------------
@@ -91,14 +93,40 @@ def _create_mock_backend() -> KnowledgeBackend:
 _mock_backend: KnowledgeBackend | None = None
 
 
+def _create_cosmos_backend() -> KnowledgeBackend:
+    """Create singleton Cosmos DB + AI Search backend."""
+    from azure.cosmos.aio import CosmosClient
+    from azure.search.documents.aio import SearchClient
+    from azure.core.credentials import AzureKeyCredential
+    from backends.cosmos_backend import CosmosBackend
+
+    cosmos_client = CosmosClient(config.cosmos_endpoint, credential=config.cosmos_key)
+    search_client = SearchClient(
+        endpoint=config.search_endpoint,
+        index_name=config.search_index,
+        credential=AzureKeyCredential(config.search_key),
+    )
+    return CosmosBackend(cosmos_client, search_client, config.cosmos_database)
+
+
+# Cache backend singletons
+_cosmos_backend: KnowledgeBackend | None = None
+
+
 def get_backend() -> KnowledgeBackend:
     """Get the appropriate backend for the current request.
 
     For SharePoint backend in HTTP mode: creates a per-request backend
     using the authenticated user's delegated token.
+    For cosmos backend: returns a shared singleton (Cosmos DB + AI Search).
     For mock backend: returns a shared singleton.
     """
-    global _mock_backend
+    global _mock_backend, _cosmos_backend
+
+    if config.backend == "cosmos":
+        if _cosmos_backend is None:
+            _cosmos_backend = _create_cosmos_backend()
+        return _cosmos_backend
 
     if config.backend == "sharepoint":
         from backends.sharepoint_backend import SharePointBackend
@@ -379,11 +407,26 @@ def meeting_prep(persona: str, company_name: str = "the prospect") -> str:
 
 
 # ---------------------------------------------------------------------------
+# Health endpoint (for Container Apps probes and MCP dashboard)
+# ---------------------------------------------------------------------------
+
+@mcp.custom_route("/health", methods=["GET"])
+async def health(request):
+    from starlette.responses import JSONResponse
+    return JSONResponse({"status": "healthy", "backend": config.backend})
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
     if config.transport == "http":
-        mcp.run(transport="streamable-http", host="0.0.0.0", port=config.http_port)
+        mcp.run(
+            transport="streamable-http",
+            host="0.0.0.0",
+            port=config.http_port,
+            stateless_http=True,  # Required for Container Apps horizontal scaling
+        )
     else:
         mcp.run(transport="stdio")
