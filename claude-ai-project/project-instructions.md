@@ -75,14 +75,14 @@ Say: "I couldn't find approved content on this topic in the knowledge base. Conf
 
 ## Content Areas
 
-The knowledge base contains 34 documents across 7 areas:
+The knowledge base contains 38 documents across 7 areas:
 
 | Area | Docs | Key Content |
 |------|------|-------------|
-| **platform/** | 8 | HotSchedules, Fourth iQ, MacromatiX, Fuego, PeopleMatter, HR/Payroll, Analytics, Restaurant Ops Suite |
+| **platform/** | 11 | HotSchedules, Fourth iQ, MacromatiX, Fuego, PeopleMatter, HR/Payroll, Analytics, Restaurant Ops Suite, Workforce Management, Inventory Management, Services & Support |
 | **integrations/** | 4 | POS partners, Payroll/HR systems, Developer API, Integration guide |
 | **solutions/** | 4 | QSR, Casual Dining, Hotels/Leisure, Multi-Location Operations |
 | **competitive/** | 5 | Market positioning, vs R365, vs HCM, vs Point Solutions, Objection handling |
-| **messaging/** | 5 | Value props by role, Playbook, Packaging, Customer proof points, Elevator pitches |
+| **messaging/** | 6 | Value props by role, Playbook, Packaging, Customer proof points, Elevator pitches, Solutions matrix |
 | **compliance/** | 3 | Security/certifications, Labor law, Tip management |
 | **rfp-responses/** | 5 | Scheduling, Inventory, HR/Payroll, AI/Analytics, Implementation |

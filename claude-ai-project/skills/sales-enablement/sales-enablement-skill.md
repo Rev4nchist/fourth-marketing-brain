@@ -99,6 +99,6 @@ Present the pitch verbatim from approved content, noting the source.
 | Issue | Solution |
 |-------|----------|
 | No content for requested persona | Use CEO/general positioning and flag gap |
-| Competitor not in knowledge base | Use market-positioning.md categories (Generic HCM, Point Solution, Restaurant Tech) |
+| Competitor not in knowledge base | Use market-positioning categories (Generic HCM, Point Solution, Restaurant Tech) |
 | Prospect's industry not covered | Use closest vertical brief, note the difference |
 | Metrics seem outdated | Flag as "verify with product marketing before use" |

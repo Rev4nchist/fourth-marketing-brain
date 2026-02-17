@@ -131,11 +131,11 @@ The knowledge base is organized into 7 content areas:
 
 | Area | Path | Content |
 |------|------|---------|
-| Platform | `platform/` | Product details: HotSchedules, Fourth iQ, MacromatiX, Fuego, PeopleMatter, Payroll, Analytics |
+| Platform | `platform/` | Product details: HotSchedules, Fourth iQ, MacromatiX, Fuego, PeopleMatter, Payroll, Analytics, Workforce Management, Inventory Management, Services & Support |
 | Integrations | `integrations/` | POS, payroll, HR, and API integration guides |
 | Solutions | `solutions/` | Vertical briefs: QSR, casual dining, hotels, multi-location |
 | Competitive | `competitive/` | Battle cards, market positioning, objection handling |
-| Messaging | `messaging/` | Value props, proof points, elevator pitches, playbooks, packaging |
+| Messaging | `messaging/` | Value props, proof points, elevator pitches, playbooks, packaging, solutions matrix |
 | Compliance | `compliance/` | Security certifications, labor law, tip management |
 | RFP Responses | `rfp-responses/` | Pre-approved answers for scheduling, inventory, HR, AI, implementation |
 

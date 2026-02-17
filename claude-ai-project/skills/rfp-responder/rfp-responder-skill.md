@@ -54,16 +54,16 @@ When a user provides multiple questions:
 
 | RFP Topic | Primary Document | Secondary Search |
 |-----------|-----------------|-----------------|
-| Scheduling & labor | rfp-responses/workforce-scheduling | platform/hotschedules-product |
+| Scheduling & labor | rfp-responses/workforce-scheduling | platform/hotschedules-product, platform/workforce-management |
 | Security & data | compliance/security-compliance | - |
 | POS integrations | integrations/pos-integrations | integrations/integration-guide |
 | Payroll & HR | rfp-responses/hr-payroll-benefits | platform/fourth-hr-payroll-hcm |
 | AI & analytics | rfp-responses/ai-analytics-reporting | platform/fourth-iq-ai-platform |
-| Inventory | rfp-responses/inventory-procurement | platform/macromatix-inventory |
-| Implementation | rfp-responses/implementation-onboarding | - |
+| Inventory | rfp-responses/inventory-procurement | platform/macromatix-inventory, platform/inventory-management |
+| Implementation | rfp-responses/implementation-onboarding | platform/services-and-support |
 | Labor compliance | compliance/labor-law-compliance | compliance/tip-management-compliance |
 | Competitive | competitive/market-positioning | competitive/vs-[competitor] |
-| General platform | messaging/enterprise-platform-playbook | platform/restaurant-operations-suite |
+| General platform | messaging/enterprise-platform-playbook | platform/restaurant-operations-suite, messaging/packaging-solutions-matrix |
 
 ## Confidence Criteria
 
