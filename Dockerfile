@@ -12,7 +12,7 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --no-dev --frozen --no-install-project
 
 # Copy application code
-COPY config.py document_parser.py server.py Procfile ./
+COPY config.py document_parser.py frontmatter.py server.py Procfile ./
 COPY backends/ backends/
 
 EXPOSE 8000
