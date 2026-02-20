@@ -347,6 +347,187 @@ async def list_content_areas() -> str:
 
 
 # ---------------------------------------------------------------------------
+# Write Tools
+# ---------------------------------------------------------------------------
+
+from backends.base import VALID_FOLDERS
+from frontmatter import sanitize_filename
+
+
+@mcp.tool()
+async def create_document(
+    folder: str,
+    filename: str,
+    content: str,
+    title: str = "",
+    last_updated: str = "",
+    source: str = "",
+    confidence: str = "",
+    tags: list[str] | None = None,
+) -> str:
+    """Create a new document in the knowledge base.
+
+    Use this to add new competitive intelligence, RFP responses, or other
+    marketing content. The document must not already exist.
+
+    Args:
+        folder: Content area folder. Must be one of: platform, competitive,
+            messaging, solutions, rfp-responses, compliance, integrations
+        filename: Document filename in snake_case without extension
+            (e.g., "vs-7shifts-2026-q1"). The .md extension is added automatically.
+        content: Full markdown content of the document.
+        title: Document title for frontmatter (defaults to filename as title case).
+        last_updated: ISO date string (defaults to today).
+        source: Content source, e.g., "competitor-crawl", "rfp-ingestion", "manual".
+        confidence: Confidence level: "GROUNDED", "PARTIAL", or "NEEDS SME".
+        tags: List of tags for categorization.
+    """
+    # Validate folder
+    if folder not in VALID_FOLDERS:
+        return (
+            f"Error: Invalid folder '{folder}'. "
+            f"Must be one of: {', '.join(VALID_FOLDERS)}"
+        )
+
+    # Sanitize filename
+    clean_name = sanitize_filename(filename)
+    if not clean_name:
+        return "Error: Filename is empty after sanitization."
+
+    # Build metadata dict from provided fields
+    metadata: dict = {}
+    if title:
+        metadata["title"] = title
+    if last_updated:
+        metadata["last_updated"] = last_updated
+    if source:
+        metadata["source"] = source
+    if confidence:
+        metadata["confidence"] = confidence
+    if tags:
+        metadata["tags"] = tags
+
+    be = get_backend()
+    result = await be.create_document(folder, clean_name, content, metadata or None)
+
+    if not result.success:
+        return f"Error: {result.message}"
+
+    return (
+        f"Document created successfully.\n"
+        f"- **Path:** {result.path}\n"
+        f"- Use `get_document(\"{folder}/{clean_name}\")` to read it back."
+    )
+
+
+@mcp.tool()
+async def update_document(
+    document_id: str,
+    content: str,
+    title: str = "",
+    last_updated: str = "",
+    source: str = "",
+    confidence: str = "",
+    tags: list[str] | None = None,
+) -> str:
+    """Replace the content of an existing document.
+
+    Creates a backup of the previous version before overwriting.
+    The last_updated field is set automatically.
+
+    Args:
+        document_id: Document identifier, same format as get_document
+            (e.g., "competitive/vs-7shifts", "rfp-responses/data-security")
+        content: New full markdown content (replaces existing content entirely).
+        title: Updated document title (preserved from existing if not provided).
+        last_updated: ISO date override (defaults to today).
+        source: Updated content source.
+        confidence: Updated confidence: "GROUNDED", "PARTIAL", or "NEEDS SME".
+        tags: Updated list of tags.
+    """
+    metadata: dict = {}
+    if title:
+        metadata["title"] = title
+    if last_updated:
+        metadata["last_updated"] = last_updated
+    if source:
+        metadata["source"] = source
+    if confidence:
+        metadata["confidence"] = confidence
+    if tags:
+        metadata["tags"] = tags
+
+    be = get_backend()
+    result = await be.update_document(document_id, content, metadata or None)
+
+    if not result.success:
+        return f"Error: {result.message}"
+
+    msg = f"Document updated successfully.\n- **Path:** {result.path}"
+    if result.backup_path:
+        msg += f"\n- **Backup:** {result.backup_path}"
+    return msg
+
+
+@mcp.tool()
+async def append_to_document(
+    document_id: str,
+    content: str,
+    section_header: str = "",
+) -> str:
+    """Append content to the end of an existing document.
+
+    Useful for logging new RFP Q&A pairs or adding competitive updates
+    to an existing document without replacing it.
+
+    Args:
+        document_id: Document identifier (e.g., "competitive/vs-7shifts")
+        content: Markdown content to append (separated by a horizontal rule).
+        section_header: Optional heading for the appended section
+            (e.g., "Q3 2026 Update"). Creates a ## heading above the content.
+    """
+    be = get_backend()
+    result = await be.append_to_document(
+        document_id, content, section_header or None,
+    )
+
+    if not result.success:
+        return f"Error: {result.message}"
+
+    return f"Content appended successfully.\n- **Path:** {result.path}"
+
+
+@mcp.tool()
+async def delete_document(document_id: str, confirm: bool = False) -> str:
+    """Remove a document from the knowledge base (soft delete).
+
+    The document is moved to _backups/ rather than permanently deleted.
+    You must set confirm=True to execute the deletion.
+
+    Args:
+        document_id: Document identifier (e.g., "competitive/vs-7shifts")
+        confirm: Must be True to execute. Prevents accidental deletion.
+    """
+    if not confirm:
+        return (
+            "Error: Deletion not confirmed. "
+            "Set confirm=True to delete the document. "
+            "The document will be moved to _backups/, not permanently destroyed."
+        )
+
+    be = get_backend()
+    result = await be.delete_document(document_id)
+
+    if not result.success:
+        return f"Error: {result.message}"
+
+    msg = f"Document deleted (soft).\n- {result.message}"
+    if result.backup_path:
+        msg += f"\n- **Backup location:** {result.backup_path}"
+    return msg
+
+
+# ---------------------------------------------------------------------------
 # Prompts
 # ---------------------------------------------------------------------------
 

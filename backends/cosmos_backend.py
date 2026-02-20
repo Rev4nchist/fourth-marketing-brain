@@ -1,12 +1,14 @@
 """Azure Cosmos DB + AI Search backend for production deployment."""
 
 import logging
+from datetime import datetime, timezone
 from typing import Any
 
 from azure.cosmos.aio import CosmosClient
+from azure.cosmos.exceptions import CosmosResourceExistsError, CosmosResourceNotFoundError
 from azure.search.documents.aio import SearchClient
 
-from .base import KnowledgeBackend, Document, DocumentContent, Folder, ContentArea
+from .base import KnowledgeBackend, Document, DocumentContent, Folder, ContentArea, WriteResult
 
 logger = logging.getLogger(__name__)
 
@@ -180,6 +182,234 @@ class CosmosBackend(KnowledgeBackend):
                 ))
 
         return sorted(areas, key=lambda a: a.name)
+
+    # --- Write operations ---
+
+    async def _get_item_by_id(self, document_id: str) -> dict | None:
+        """Fetch a raw Cosmos item by document_id (tries normalized and original)."""
+        cosmos_id = document_id.replace("/", "-")
+        sql = "SELECT * FROM c WHERE c.id = @id"
+        async for item in self._documents_container.query_items(
+            query=sql,
+            parameters=[{"name": "@id", "value": cosmos_id}],
+            max_item_count=1,
+        ):
+            return item
+
+        # Try fuzzy
+        normalized = document_id.lower().replace(" ", "-").replace("/", "-")
+        sql_fuzzy = "SELECT * FROM c WHERE CONTAINS(LOWER(c.id), @term)"
+        async for item in self._documents_container.query_items(
+            query=sql_fuzzy,
+            parameters=[{"name": "@term", "value": normalized}],
+            max_item_count=1,
+        ):
+            return item
+
+        return None
+
+    async def _upsert_search_index(self, doc: dict) -> None:
+        """Upload or update a document in the Azure AI Search index."""
+        try:
+            search_doc = {
+                "id": doc["id"],
+                "title": doc.get("title", ""),
+                "content_area": doc.get("content_area", ""),
+                "summary": doc.get("summary", ""),
+                "path": doc.get("path", ""),
+                "full_text": doc.get("full_text", ""),
+            }
+            await self._search.upload_documents(documents=[search_doc])
+        except Exception as e:
+            logger.warning("Search index update failed (non-fatal): %s", e)
+
+    async def _remove_from_search_index(self, doc_id: str) -> None:
+        """Remove a document from the Azure AI Search index."""
+        try:
+            await self._search.delete_documents(documents=[{"id": doc_id}])
+        except Exception as e:
+            logger.warning("Search index delete failed (non-fatal): %s", e)
+
+    async def create_document(
+        self, folder: str, filename: str, content: str,
+        metadata: dict | None = None,
+    ) -> WriteResult:
+        cosmos_id = f"{folder}-{filename}"
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        meta = metadata or {}
+
+        # Check if already exists
+        existing = await self._get_item_by_id(cosmos_id)
+        if existing:
+            return WriteResult(
+                success=False,
+                path=f"{folder}/{filename}.md",
+                message=f"Document already exists with id '{cosmos_id}'. Use update_document to modify it.",
+            )
+
+        # Build summary from first 200 chars
+        summary = content[:200].replace("\n", " ").strip()
+        if len(content) > 200:
+            summary += "..."
+
+        item = {
+            "id": cosmos_id,
+            "title": meta.get("title", filename.replace("-", " ").title()),
+            "content_area": folder,
+            "path": f"{folder}/{filename}.md",
+            "full_text": content,
+            "summary": summary,
+            "word_count": len(content.split()),
+            "doc_type": "markdown",
+            "last_updated": meta.get("last_updated", now),
+            "source": meta.get("source", "manual"),
+            "confidence": meta.get("confidence", "NEEDS SME"),
+            "tags": meta.get("tags", []),
+        }
+
+        await self._documents_container.create_item(body=item)
+        await self._upsert_search_index(item)
+
+        return WriteResult(
+            success=True,
+            path=f"{folder}/{filename}.md",
+            message="Document created.",
+        )
+
+    async def update_document(
+        self, document_id: str, content: str,
+        metadata: dict | None = None,
+    ) -> WriteResult:
+        existing = await self._get_item_by_id(document_id)
+        if not existing:
+            return WriteResult(
+                success=False,
+                path=document_id,
+                message=f"Document not found: '{document_id}'. Use create_document for new documents.",
+            )
+
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        cosmos_id = existing["id"]
+        content_area = existing["content_area"]
+
+        # Backup: store previous version in a backups container or as a timestamped copy
+        backup_id = f"{cosmos_id}_backup_{now}"
+        backup_item = dict(existing)
+        backup_item["id"] = backup_id
+        backup_item["_backup_of"] = cosmos_id
+        backup_item["_backed_up_at"] = now
+        # Remove Cosmos system fields
+        for key in ("_rid", "_self", "_etag", "_attachments", "_ts"):
+            backup_item.pop(key, None)
+        try:
+            await self._documents_container.upsert_item(body=backup_item)
+        except Exception as e:
+            logger.warning("Backup creation failed: %s", e)
+
+        # Update the document
+        summary = content[:200].replace("\n", " ").strip()
+        if len(content) > 200:
+            summary += "..."
+
+        meta = metadata or {}
+        existing["full_text"] = content
+        existing["summary"] = summary
+        existing["word_count"] = len(content.split())
+        existing["last_updated"] = now
+        for k in ("title", "source", "confidence", "tags"):
+            if k in meta:
+                existing[k] = meta[k]
+
+        await self._documents_container.upsert_item(body=existing)
+        await self._upsert_search_index(existing)
+
+        return WriteResult(
+            success=True,
+            path=existing.get("path", document_id),
+            message=f"Document updated. Previous version backed up as {backup_id}.",
+            backup_path=backup_id,
+        )
+
+    async def append_to_document(
+        self, document_id: str, content: str,
+        section_header: str | None = None,
+    ) -> WriteResult:
+        existing = await self._get_item_by_id(document_id)
+        if not existing:
+            return WriteResult(
+                success=False,
+                path=document_id,
+                message=f"Document not found: '{document_id}'.",
+            )
+
+        separator = "\n\n---\n\n"
+        if section_header:
+            appended = f"## {section_header}\n\n{content}"
+        else:
+            appended = content
+
+        existing["full_text"] = existing.get("full_text", "").rstrip() + separator + appended
+        existing["word_count"] = len(existing["full_text"].split())
+        existing["last_updated"] = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+        # Update summary if it was very short
+        summary = existing["full_text"][:200].replace("\n", " ").strip()
+        if len(existing["full_text"]) > 200:
+            summary += "..."
+        existing["summary"] = summary
+
+        await self._documents_container.upsert_item(body=existing)
+        await self._upsert_search_index(existing)
+
+        return WriteResult(
+            success=True,
+            path=existing.get("path", document_id),
+            message="Content appended to document.",
+        )
+
+    async def delete_document(self, document_id: str) -> WriteResult:
+        existing = await self._get_item_by_id(document_id)
+        if not existing:
+            return WriteResult(
+                success=False,
+                path=document_id,
+                message=f"Document not found: '{document_id}'.",
+            )
+
+        cosmos_id = existing["id"]
+        content_area = existing["content_area"]
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+        # Soft-delete: save as backup, then remove the original
+        backup_id = f"{cosmos_id}_deleted_{now}"
+        backup_item = dict(existing)
+        backup_item["id"] = backup_id
+        backup_item["_deleted_from"] = cosmos_id
+        backup_item["_deleted_at"] = now
+        for key in ("_rid", "_self", "_etag", "_attachments", "_ts"):
+            backup_item.pop(key, None)
+
+        try:
+            await self._documents_container.upsert_item(body=backup_item)
+        except Exception as e:
+            logger.warning("Backup before delete failed: %s", e)
+
+        # Delete original from Cosmos
+        try:
+            await self._documents_container.delete_item(item=cosmos_id, partition_key=content_area)
+        except Exception as e:
+            logger.error("Cosmos delete failed: %s", e)
+            return WriteResult(success=False, path=document_id, message=f"Delete failed: {e}")
+
+        # Remove from search index
+        await self._remove_from_search_index(cosmos_id)
+
+        return WriteResult(
+            success=True,
+            path=document_id,
+            message="Document moved to backup. It can be restored from _backups/.",
+            backup_path=backup_id,
+        )
 
     @staticmethod
     def _item_to_document_content(item: dict) -> DocumentContent:

@@ -1,10 +1,13 @@
 """Mock backend that reads from local sample_content/ directory."""
 
 import os
+import shutil
+from datetime import datetime, timezone
 from pathlib import Path
 
-from .base import KnowledgeBackend, Document, DocumentContent, Folder, ContentArea
+from .base import KnowledgeBackend, Document, DocumentContent, Folder, ContentArea, WriteResult
 from document_parser import extract_text
+from frontmatter import parse_frontmatter, generate_frontmatter, merge_metadata
 
 
 class MockBackend(KnowledgeBackend):
@@ -156,6 +159,163 @@ class MockBackend(KnowledgeBackend):
             )
 
         return list(areas.values())
+
+    # --- Write operations ---
+
+    def _invalidate_cache(self) -> None:
+        """Clear the in-memory document index so it's rebuilt on next read."""
+        self._documents = None
+
+    def _backup_path(self, folder: str, filename: str, suffix: str = "") -> Path:
+        """Return a backup file path with timestamp."""
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%S")
+        backup_dir = self.content_dir / "_backups" / folder
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        label = suffix or ts
+        return backup_dir / f"{filename}_{label}.md"
+
+    async def create_document(
+        self, folder: str, filename: str, content: str,
+        metadata: dict | None = None,
+    ) -> WriteResult:
+        target_dir = self.content_dir / folder
+        target_dir.mkdir(parents=True, exist_ok=True)
+        target = target_dir / f"{filename}.md"
+
+        if target.exists():
+            return WriteResult(
+                success=False,
+                path=f"{folder}/{filename}.md",
+                message=f"Document already exists at {folder}/{filename}.md. Use update_document to modify it.",
+            )
+
+        # Build frontmatter
+        meta = {
+            "title": (metadata or {}).get("title", filename.replace("-", " ").title()),
+            "folder": folder,
+            "last_updated": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+            "source": (metadata or {}).get("source", "manual"),
+            "confidence": (metadata or {}).get("confidence", "NEEDS SME"),
+        }
+        if metadata:
+            for k in ("tags", "title", "source", "confidence", "last_updated"):
+                if k in metadata:
+                    meta[k] = metadata[k]
+
+        fm = generate_frontmatter(meta)
+        target.write_text(fm + content, encoding="utf-8")
+        self._invalidate_cache()
+
+        return WriteResult(
+            success=True,
+            path=f"{folder}/{filename}.md",
+            message="Document created.",
+        )
+
+    async def update_document(
+        self, document_id: str, content: str,
+        metadata: dict | None = None,
+    ) -> WriteResult:
+        docs = self._index_documents()
+        if document_id not in docs:
+            return WriteResult(
+                success=False,
+                path=document_id,
+                message=f"Document not found: '{document_id}'. Use create_document for new documents.",
+            )
+
+        file_path = Path(docs[document_id]["file_path"])
+        if not file_path.exists():
+            return WriteResult(success=False, path=document_id, message="Source file missing on disk.")
+
+        # Read existing content and frontmatter
+        existing_text = file_path.read_text(encoding="utf-8")
+        existing_meta, _ = parse_frontmatter(existing_text)
+
+        # Backup
+        parts = document_id.split("/", 1)
+        folder = parts[0] if len(parts) > 1 else ""
+        fname = parts[-1]
+        backup = self._backup_path(folder, fname)
+        shutil.copy2(str(file_path), str(backup))
+
+        # Merge metadata and write
+        merged = merge_metadata(existing_meta, metadata)
+        fm = generate_frontmatter(merged)
+        file_path.write_text(fm + content, encoding="utf-8")
+        self._invalidate_cache()
+
+        backup_rel = str(backup.relative_to(self.content_dir)).replace("\\", "/")
+        return WriteResult(
+            success=True,
+            path=f"{document_id}.md" if not document_id.endswith(".md") else document_id,
+            message=f"Document updated. Previous version backed up to {backup_rel}.",
+            backup_path=backup_rel,
+        )
+
+    async def append_to_document(
+        self, document_id: str, content: str,
+        section_header: str | None = None,
+    ) -> WriteResult:
+        docs = self._index_documents()
+        if document_id not in docs:
+            return WriteResult(
+                success=False,
+                path=document_id,
+                message=f"Document not found: '{document_id}'.",
+            )
+
+        file_path = Path(docs[document_id]["file_path"])
+        existing_text = file_path.read_text(encoding="utf-8")
+
+        # Update last_updated in frontmatter
+        existing_meta, body = parse_frontmatter(existing_text)
+        existing_meta["last_updated"] = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        fm = generate_frontmatter(existing_meta)
+
+        # Build appended section
+        separator = "\n\n---\n\n"
+        if section_header:
+            appended = f"## {section_header}\n\n{content}"
+        else:
+            appended = content
+
+        new_text = fm + body.rstrip() + separator + appended + "\n"
+        file_path.write_text(new_text, encoding="utf-8")
+        self._invalidate_cache()
+
+        return WriteResult(
+            success=True,
+            path=f"{document_id}.md",
+            message="Content appended to document.",
+        )
+
+    async def delete_document(self, document_id: str) -> WriteResult:
+        docs = self._index_documents()
+        if document_id not in docs:
+            return WriteResult(
+                success=False,
+                path=document_id,
+                message=f"Document not found: '{document_id}'.",
+            )
+
+        file_path = Path(docs[document_id]["file_path"])
+        parts = document_id.split("/", 1)
+        folder = parts[0] if len(parts) > 1 else ""
+        fname = parts[-1]
+
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%S")
+        backup = self._backup_path(folder, fname, suffix=f"deleted_{ts}")
+        shutil.move(str(file_path), str(backup))
+        self._invalidate_cache()
+
+        backup_rel = str(backup.relative_to(self.content_dir)).replace("\\", "/")
+        return WriteResult(
+            success=True,
+            path=document_id,
+            message=f"Document moved to backup. It can be restored from _backups/.",
+            backup_path=backup_rel,
+        )
 
 
 def _extract_summary(text: str, terms: list[str], max_len: int = 200) -> str:

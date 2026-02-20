@@ -4,6 +4,13 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
 
+# Valid content area folders for write operations
+VALID_FOLDERS = (
+    "platform", "competitive", "messaging", "solutions",
+    "rfp-responses", "compliance", "integrations",
+)
+
+
 @dataclass
 class Document:
     """Search result metadata."""
@@ -29,6 +36,15 @@ class DocumentContent:
 
 
 @dataclass
+class WriteResult:
+    """Result of a write operation."""
+    success: bool
+    path: str = ""
+    message: str = ""
+    backup_path: str = ""
+
+
+@dataclass
 class Folder:
     """A folder/category in the knowledge repo."""
     name: str
@@ -49,8 +65,10 @@ class ContentArea:
 class KnowledgeBackend(ABC):
     """Abstract interface for knowledge repository backends.
 
-    Implementations: MockBackend (local files), SharePointBackend (Graph API).
+    Implementations: MockBackend (local files), CosmosBackend (Azure Cosmos DB + AI Search).
     """
+
+    # --- Read operations ---
 
     @abstractmethod
     async def search(self, query: str, max_results: int = 10) -> list[Document]:
@@ -67,3 +85,30 @@ class KnowledgeBackend(ABC):
     @abstractmethod
     async def list_content_areas(self) -> list[ContentArea]:
         """List top-level content categories."""
+
+    # --- Write operations ---
+
+    @abstractmethod
+    async def create_document(
+        self, folder: str, filename: str, content: str,
+        metadata: dict | None = None,
+    ) -> WriteResult:
+        """Create a new document. Fails if it already exists."""
+
+    @abstractmethod
+    async def update_document(
+        self, document_id: str, content: str,
+        metadata: dict | None = None,
+    ) -> WriteResult:
+        """Replace an existing document's content. Creates a backup first."""
+
+    @abstractmethod
+    async def append_to_document(
+        self, document_id: str, content: str,
+        section_header: str | None = None,
+    ) -> WriteResult:
+        """Append content to an existing document."""
+
+    @abstractmethod
+    async def delete_document(self, document_id: str) -> WriteResult:
+        """Soft-delete a document by moving it to _backups/."""

@@ -19,11 +19,13 @@ uv run python server.py
 
 ```
 FastMCP Server
-├── Tools: search_knowledge, browse_library, get_document, ask_question, list_content_areas
-├── Prompts: product_qa, rfp_draft, meeting_prep
+├── Read Tools:  search_knowledge, browse_library, get_document, ask_question, list_content_areas
+├── Write Tools: create_document, update_document, append_to_document, delete_document
+├── Prompts:     product_qa, rfp_draft, meeting_prep
 └── Backend (swappable):
-    ├── MockBackend    - local sample_content/ files (default)
-    └── SharePointBackend - Microsoft Graph API (production)
+    ├── MockBackend   - local sample_content/ files (default)
+    ├── CosmosBackend - Azure Cosmos DB + AI Search (production)
+    └── SharePointBackend - Microsoft Graph API (read-only)
 ```
 
 ## Configuration
@@ -77,13 +79,34 @@ Once deployed to a public URL (see [Remote Deployment](#remote-deployment)):
 
 ## Tools
 
+### Read Tools
+
 | Tool | Description |
 |------|-------------|
-| `search_knowledge(query)` | Full-text search across all marketing content |
+| `search_knowledge(query, max_results)` | Full-text search across all marketing content |
 | `browse_library(folder_path)` | Browse knowledge repo folder structure |
 | `get_document(name_or_id)` | Retrieve full text of a specific document |
 | `ask_question(question)` | RAG-style Q&A with confidence indicators |
 | `list_content_areas()` | List top-level content categories |
+
+### Write Tools
+
+| Tool | Description |
+|------|-------------|
+| `create_document(folder, filename, content, ...)` | Add a new document to the knowledge base |
+| `update_document(document_id, content, ...)` | Replace content of an existing document (creates backup) |
+| `append_to_document(document_id, content, section_header)` | Append content to an existing document |
+| `delete_document(document_id, confirm)` | Soft-delete a document (moves to `_backups/`) |
+
+**Write tool parameters:**
+
+- `folder` — Must be one of: `platform`, `competitive`, `messaging`, `solutions`, `rfp-responses`, `compliance`, `integrations`
+- `filename` — Snake-case name without extension (`.md` added automatically)
+- `document_id` — Same format as `get_document` (e.g., `competitive/vs-7shifts`)
+- Metadata fields: `title`, `last_updated`, `source`, `confidence` (`GROUNDED`/`PARTIAL`/`NEEDS SME`), `tags`
+- All writes include YAML frontmatter and auto-set `last_updated`
+- `update_document` creates a timestamped backup before overwriting
+- `delete_document` requires `confirm=True` and moves to `_backups/` (never hard-deletes)
 
 ## Confidence Indicators
 
